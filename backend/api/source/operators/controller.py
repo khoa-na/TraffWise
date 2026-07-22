@@ -423,6 +423,9 @@ class Controller:
             if camera_name not in self.config["samples"]:
                 raise ValueError(f"Camera '{camera_name}' not found")
 
+            if camera_name == self.camera_name:
+                return self.get_camera_config(camera_name)
+
             was_running = self._worker_running
             if was_running:
                 self.stop_stream_worker()

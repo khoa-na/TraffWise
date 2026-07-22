@@ -130,6 +130,22 @@ class StreamProducerTest(unittest.TestCase):
         controller.start_stream_worker.assert_called_once()
         controller.init_process_video.assert_not_called()
 
+    def test_selecting_current_camera_does_not_restart_worker(self):
+        controller = Controller.__new__(Controller)
+        controller.config = {"samples": {"1": {}}}
+        controller.camera_name = "1"
+        controller.stop_stream_worker = MagicMock()
+        controller.start_stream_worker = MagicMock()
+        controller.reinitialize_camera = MagicMock()
+        controller.get_camera_config = MagicMock(return_value={"camera": "1"})
+
+        result = controller.switch_camera("1")
+
+        self.assertEqual(result, {"camera": "1"})
+        controller.stop_stream_worker.assert_not_called()
+        controller.start_stream_worker.assert_not_called()
+        controller.reinitialize_camera.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

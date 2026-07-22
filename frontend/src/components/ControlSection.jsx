@@ -8,13 +8,12 @@ import {
   FaPlay,
 } from "react-icons/fa";
 import "./ControlSection.css";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useData } from "../contexts/DataProvider";
 import { API_URL } from "../api";
 
 export default function ControlSection({ togglePanel, activePanel, cameraId }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [isOn, setIsOn] = useState(true);
   const { cameras } = useData();
   const [selectedModel, setSelectedModel] = useState("yolo11");
@@ -56,64 +55,6 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     }
   };
 
-  const isMonitorPage = location.pathname.includes("/monitor");
-
-  useEffect(() => {
-    const resetEverything = async () => {
-      if (isMonitorPage) {
-        setIsOn(false);
-        setSelectedModel("yolo11");
-
-        const newCameraId = cameraId ? String(cameraId) : "1";
-        setSelectedCamera(newCameraId);
-
-        try {
-          await fetch(`${API_URL}/set_model`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model_type: "yolo11" }),
-          });
-
-          await fetch(`${API_URL}/set_camera`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ camera_id: newCameraId }),
-          });
-
-          console.log("Reset successful");
-        } catch (err) {
-          console.error("Error resetting state:", err);
-          setError("Failed to reset video feed");
-        }
-      }
-    };
-
-    resetEverything();
-
-    return () => {
-      console.log("ControlSection unmounting");
-    };
-  }, [isMonitorPage, cameraId]);
-
-  useEffect(() => {
-    const initAnnotationState = async () => {
-      if (isMonitorPage) {
-        try {
-          await fetch(`${API_URL}/toggle_annotations`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ show_annotations: true }),
-          });
-          setIsOn(true);
-        } catch (err) {
-          console.error("Error setting initial annotation state:", err);
-        }
-      }
-    };
-
-    initAnnotationState();
-  }, [isMonitorPage]);
-
   useEffect(() => {
     if (cameraId) setSelectedCamera(String(cameraId));
   }, [cameraId]);
@@ -145,32 +86,10 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     }
   };
 
-  const handleCameraChange = async (e) => {
+  const handleCameraChange = (e) => {
     const camera_id = e.target.value;
     setSelectedCamera(camera_id);
     navigate(`/monitor/${camera_id}`);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_URL}/set_camera`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ camera_id }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Error switching camera:", errorData);
-        setError(
-          `Failed to switch camera: ${errorData.detail || "Unknown error"}`
-        );
-      }
-    } catch (err) {
-      console.error("Network error:", err);
-      setError("Network error when switching camera");
-    }
   };
 
   const handleCapture = async () => {

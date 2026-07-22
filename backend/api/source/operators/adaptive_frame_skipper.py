@@ -52,6 +52,7 @@ class AdaptiveFrameSkipper:
 
         if max_possible_fps >= self.target_fps:
             self.skip_pattern = [0]
+            self.pattern_position = 0
             print(
                 f"Processing all frames - can achieve {max_possible_fps:.1f} FPS")
             return
