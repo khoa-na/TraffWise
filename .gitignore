@@ -13,6 +13,7 @@ frontend/build/
 
 # Runtime output
 backend/captures/
+backend/violations/
 *.log
 
 # Large local assets

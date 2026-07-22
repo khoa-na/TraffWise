@@ -1,22 +1,42 @@
 # TraffWise
 
-TraffWise is a full-stack traffic monitoring system built with computer vision, FastAPI, and React. It processes traffic-camera feeds, tracks vehicles, detects traffic violations (speeding, red-light running, wrong-way driving), performs license plate OCR, and streams annotated video feeds to a real-time web dashboard.
+TraffWise is a full-stack computer-vision system for processing traffic-camera
+feeds. It detects and tracks vehicles, identifies speeding, red-light and
+wrong-way violations, reads license plates, stores evidence, and streams the
+annotated result to a React dashboard through FastAPI.
 
-## Demo
+The project compares three detector families—YOLO11, RT-DETRv2 and Faster
+R-CNN—inside the same runtime pipeline. Training notebooks, per-epoch metrics
+and versioned runtime assets are included so the model-selection claims can be
+checked rather than treated as screenshots or estimates.
 
-> [!NOTE]
-> Below are preview assets demonstrating the live dashboard and vehicle monitoring pipeline.
+## My Role
 
-[![TraffWise Demo Video](docs/images/demo-thumbnail.png)](https://github.com/khoa-na/TraffWise)
-*Click the thumbnail above to watch the full system demonstration video.*
+My primary responsibilities in this project were:
 
-![Traffic Monitoring Dashboard](docs/images/camera-monitor.png)
-*Real-time multi-camera monitoring view with vehicle tracking, speed estimation, and lane overlay.*
+- Training and evaluating **YOLO11** for four vehicle classes: bus, car,
+  motorbike and truck.
+- Training and evaluating a custom **Faster R-CNN** detector using a
+  MobileNetV3-Small feature pyramid backbone.
+- Comparing detector results and selecting YOLO11 as the default model from
+  the recorded validation metrics.
+- Integrating license-plate detection with **EasyOCR**, including vehicle
+  cropping, plate localization, text extraction and passing the recognized
+  plate text into violation records.
 
-![Violation Detection & Plate OCR](docs/images/violation-detail.png)
-*Detailed violation view featuring vehicle snapshot, speed calculation, and license plate OCR recognition.*
+Evidence for these contributions is retained in the executed notebooks, CSV
+training logs, checkpoints and production integration code linked below.
 
----
+## Technology Stack
+
+| Area | Technologies |
+|---|---|
+| Detection | YOLO11, RT-DETRv2, Faster R-CNN, PyTorch, torchvision, Ultralytics |
+| Tracking and vision | DeepSORT, OpenCV, perspective transformation |
+| License plates | YOLO plate detector, EasyOCR |
+| Backend | FastAPI, SQLite, MJPEG streaming |
+| Frontend | React, React Router |
+| Delivery | Docker Compose, GitHub Actions, Hugging Face assets |
 
 ## Features
 
@@ -25,7 +45,7 @@ TraffWise is a full-stack traffic monitoring system built with computer vision, 
 - **Traffic Violation Suite**: Speed estimation, red-light violation, and wrong-lane driving detection.
 - **Automated License Plate Recognition**: License plate detection and EasyOCR text extraction.
 - **Interactive Web Dashboard**: React frontend for camera switching, parameter tuning, and violation report generation.
-- **CPU & NVIDIA GPU Support**: Optimized execution pipeline for both CPU and CUDA-accelerated hardware.
+- **CPU & NVIDIA GPU Support**: Docker configurations for CPU and CUDA-enabled execution.
 
 ---
 
@@ -33,7 +53,9 @@ TraffWise is a full-stack traffic monitoring system built with computer vision, 
 
 ### Detector Accuracy Benchmark
 
-Evaluation performed on validation split (best epoch selected by validation mAP50-95):
+The table reports the row with the highest validation mAP50-95 from each
+tracked training log. These are model-quality metrics, not runtime latency or
+FPS measurements.
 
 | Model | Precision | Recall | mAP50 | mAP50-95 | Weight Size | Framework |
 |---|---:|---:|---:|---:|---:|---|
@@ -44,10 +66,31 @@ Evaluation performed on validation split (best epoch selected by validation mAP5
 
 ### Model Selection Rationale
 
-- **Default Model**: **YOLO11** is chosen as the default real-time detector because it achieves the highest mAP50-95 (**0.7521**) and mAP50 (**0.9273**) while maintaining a compact weight size of **5.5 MB** and low inference latency.
+- **Default Model**: **YOLO11** is chosen as the default detector because it achieves the highest validation mAP50-95 (**0.7521**) and mAP50 (**0.9273**) with a compact **5.5 MB** checkpoint.
 - **Transformer Alternative**: **RT-DETRv2** provides end-to-end NMS-free detection but trades off slightly lower mAP50-95 on the validation split.
-- **Two-Stage Comparison**: **Faster R-CNN** achieves reasonable mAP50 (0.9015) but requires significantly larger memory overhead (65.2 MB) and higher inference latency.
-- **Pipeline Bottlenecks**: In CPU mode, license plate crop OCR and MJPEG frame encoding are the primary processing bottlenecks; GPU mode accelerates both object detection and feature extraction.
+- **Two-Stage Comparison**: **Faster R-CNN** achieves reasonable mAP50 (0.9015) but uses a substantially larger 65.2 MB checkpoint.
+
+Runtime latency and FPS are intentionally omitted until they are measured with
+the real pipeline on documented hardware.
+
+### Training Evidence
+
+| Work | Retained evidence |
+|---|---|
+| YOLO11 vehicle detection | [Executed training notebook](notebooks/YOLO11.ipynb) · [150-epoch CSV log](notebooks/yolo11_train_results.csv) |
+| Faster R-CNN vehicle detection | [Training part 1](notebooks/FasterRCNN-part-1.ipynb) · [resumed training part 2](notebooks/FasterRCNN-part-2.ipynb) · [150-epoch CSV log](notebooks/faster_rcnn_train_results.csv) |
+| License-plate detector | [Executed training notebook](notebooks/lp_detection.ipynb) · [100-epoch CSV log](notebooks/lp_detection_results.csv) |
+| RT-DETRv2 comparison | [Executed training notebook](notebooks/RT-DETRv2.ipynb) · [150-epoch CSV log](notebooks/rtdetrv2_train_results.csv) |
+
+The YOLO11 run used 150 epochs, 640 px inputs, AdamW, seed 42 and a batch size
+of 128 on NVIDIA T4 GPUs. Faster R-CNN training was resumed across two notebook
+runs and evaluated through epoch 150. The stored model bundle is independently
+pinned by file size and SHA-256 in [`assets-manifest.json`](assets-manifest.json).
+
+The original training datasets are not distributed with this repository and
+are not required to run TraffWise. The Hugging Face repository is a runtime
+asset bundle containing inference checkpoints, sample videos and camera
+annotations only.
 
 ---
 
@@ -60,11 +103,13 @@ flowchart LR
     T --> S[Speed Estimator]
     T --> R[Red-Light Detector]
     T --> W[Wrong-Way Detector]
-    S --> M[Violation Manager]
-    R --> M
-    W --> M
-    M --> O[License Plate OCR]
-    M --> E[Evidence Storage / SQLite]
+    S --> H[Violation Handler]
+    R --> H
+    W --> H
+    H --> O[License Plate OCR]
+    H --> E[Local Evidence]
+    O --> M[Violation Manager / SQLite]
+    E --> M
     T --> J[MJPEG Stream Worker]
     J --> A[FastAPI Backend]
     M --> A
@@ -85,10 +130,13 @@ flowchart LR
 
 ### System Lifecycle & Trade-Offs
 
-- **Model Initialization**: Pretrained models are loaded into memory on backend startup; model switching reuses memory pools.
+- **Model Initialization**: The default checkpoint is loaded on backend startup; model switching loads the selected checkpoint on demand.
 - **Camera Switching**: Switching cameras resets DeepSORT track IDs and loads camera-specific lane annotations and perspective calibrations.
 - **Stream Concurrency**: A single background producer thread processes frames and encodes MJPEG buffers shared across all connected clients.
-- **Known Limitations**: Demo videos use fixed sample files; speed estimation accuracy depends on perspective calibration quality; OCR accuracy degrades under extreme blur or low light.
+- **Known Limitations**: Demo videos use fixed sample files; speed estimation
+  accuracy depends on perspective calibration quality; OCR accuracy degrades
+  under blur, glare, occlusion and low light; the validation table describes
+  the best logged epochs and is not a hardware-performance benchmark.
 
 ---
 
@@ -126,7 +174,8 @@ docker-compose.gpu.yml   NVIDIA GPU override configuration
    cd TraffWise
    ```
 
-2. **Download and verify asset bundle**:
+2. **Download and verify the runtime asset bundle** (inference checkpoints,
+   sample videos and camera annotations; no training dataset):
    ```bash
    python3 scripts/download_assets.py
    ```
@@ -181,6 +230,33 @@ CLOUDINARY_API_SECRET=your-api-secret
 
 ---
 
+## Verification
+
+The current implementation has been checked with:
+
+- **13 backend regression tests** covering controller construction, stream
+  concurrency, camera switching, model switching, violation deduplication,
+  SQLite persistence and non-blocking evidence upload.
+- A **frontend production build** with Node.js 20 and `CI=true`.
+- A **Docker Compose smoke test** covering both services, camera 1 and camera 2
+  MJPEG streams, camera switching, pause/resume, annotation control, frame
+  capture, controller reset and configured CORS.
+
+Run the repository checks with:
+
+```bash
+PYTHONPATH=backend python3 -W error::ResourceWarning \
+  -m unittest discover -s backend/tests -v
+
+cd frontend
+CI=true npm run build
+```
+
+Runtime FPS and latency are not published because no controlled hardware
+benchmark has been retained.
+
+---
+
 ## Useful Commands
 
 - **Verify downloaded asset checksums**:
@@ -205,5 +281,9 @@ CLOUDINARY_API_SECRET=your-api-secret
 ## License & Data Attribution
 
 - **Code License**: Source code is licensed under the [MIT License](LICENSE).
-- **Model Weights & Sample Media**: Distributed separately via Hugging Face [`khoa-na/traffwise-assets`](https://huggingface.co/datasets/khoa-na/traffwise-assets).
+- **Runtime Assets**: Inference weights, sample videos and camera annotations
+  are distributed via Hugging Face
+  [`khoa-na/traffwise-assets`](https://huggingface.co/datasets/khoa-na/traffwise-assets).
+  This bundle is only for running the application; it does not contain the
+  original training datasets.
 - **Dataset Attribution**: External datasets and baseline pre-trained model weights retain their respective original licenses and usage terms.

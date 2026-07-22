@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { API_URL } from "../api";
+import { API_URL, apiAssetUrl } from "../api";
 import {
   FaArrowLeft,
   FaCheck,
@@ -51,6 +51,31 @@ export default function ViolationDetail() {
 
     fetchViolation();
   }, [id]);
+
+  const [isResolving, setIsResolving] = useState(false);
+  const [actionError, setActionError] = useState(null);
+
+  const handleResolve = async () => {
+    setIsResolving(true);
+    setActionError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/violations/${id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Resolved" }),
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Failed to update status");
+      }
+      setViolation((prev) => (prev ? { ...prev, status: "Resolved" } : prev));
+    } catch (err) {
+      console.error("Error resolving violation:", err);
+      setActionError(err.message || "Failed to resolve violation");
+    } finally {
+      setIsResolving(false);
+    }
+  };
 
   const formatPlate = (plate) => {
     return plate;
@@ -130,7 +155,10 @@ export default function ViolationDetail() {
           <div className="violation-main-content">
             <div className="violation-image-large">
               <img
-                src={violation.evidence || "https://placehold.co/1400x800"}
+                src={
+                  apiAssetUrl(violation.evidence) ||
+                  "https://placehold.co/1400x800"
+                }
                 alt={`Violation by ${violation.plate}`}
               />
             </div>
@@ -227,9 +255,18 @@ export default function ViolationDetail() {
               )}
             </div>
 
+            {actionError && (
+              <div className="error-message" style={{ color: "#ef4444", marginBottom: "1rem" }}>
+                {actionError}
+              </div>
+            )}
             <div className="action-buttons">
-              <button className="resolve-button">
-                <FaCheck /> Mark as Resolved
+              <button
+                className="resolve-button"
+                onClick={handleResolve}
+                disabled={isResolving || violation.status === "Resolved"}
+              >
+                <FaCheck /> {isResolving ? "Resolving..." : violation.status === "Resolved" ? "Resolved" : "Mark as Resolved"}
               </button>
               <button className="report-button">
                 <FaExclamationTriangle /> Report Issue

@@ -24,6 +24,7 @@ class CameraIsolationTest(unittest.TestCase):
         controller.config = config
         controller.camera_name = "1"
         controller.camera_settings = {}
+        controller._default_settings = {"test": "default"}
         controller.update_parameters = MagicMock()
         controller.get_system_config = MagicMock(return_value={"test": "default"})
 

@@ -19,7 +19,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
   const { cameras } = useData();
   const [selectedModel, setSelectedModel] = useState("yolo11");
   const [selectedCamera, setSelectedCamera] = useState("1");
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
   const [captureStatus, setCaptureStatus] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -94,28 +94,6 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
       console.log("ControlSection unmounting");
     };
   }, [isMonitorPage, cameraId]);
-
-  useEffect(() => {
-    const fetchPauseState = async () => {
-      try {
-        const response = await fetch(`${API_URL}/toggle_pause`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          // Send empty body to avoid toggling the state
-          body: JSON.stringify({}),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setIsPaused(data.paused);
-        }
-      } catch (err) {
-        console.error("Error fetching pause state:", err);
-      }
-    };
-  }, [location.pathname]);
 
   useEffect(() => {
     const initAnnotationState = async () => {

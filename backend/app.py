@@ -1,5 +1,6 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import FastAPI, Request, File, UploadFile, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 import sys
@@ -30,8 +31,13 @@ CAPTURES_DIR.mkdir(exist_ok=True)
 print(f"Captures will be saved to: {CAPTURES_DIR}")
 
 
+EVIDENCE_DIR = BASE_DIR / "violations" / "evidence"
+EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI()
 setup_cors(app)
+
+app.mount("/violations/evidence", StaticFiles(directory=str(EVIDENCE_DIR)), name="evidence")
 
 
 def load_config():
@@ -126,21 +132,6 @@ async def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame")
 
 
-@app.post("/reset")
-async def reset_controller(request: dict = None):
-    """Reset the controller to initial state."""
-    try:
-
-        global controller, tester
-        controller = Controller(load_config())
-        tester = Tester(controller)
-
-        return {"status": "success", "message": "Controller reset to initial state"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to reset controller: {str(e)}")
-
-
 @app.post("/toggle_pause")
 async def toggle_pause():
     """Toggles the pause state of the video feed."""
@@ -168,7 +159,7 @@ async def toggle_annotations(request: AnnotationToggleRequest):
 @app.post("/api/parameters")
 async def update_parameters(params: dict):
     try:
-        controller.update_parameters(params)
+        controller.update_camera_parameters(controller.camera_name, params)
 
         # Get updated config to verify changes
         updated_config = controller.get_system_config()
@@ -240,16 +231,18 @@ async def get_violation(violation_id: str):
             status_code=500, detail=f"Failed to fetch violation: {str(e)}")
 
 
+class StatusUpdateRequest(BaseModel):
+    status: Literal["Pending", "Resolved", "Dismissed"]
+
+
 @app.post("/api/violations/{violation_id}/status")
-async def update_violation_status(violation_id: str, request: Request):
+async def update_violation_status(violation_id: str, request: StatusUpdateRequest):
     """Update violation status (e.g. Pending -> Resolved)"""
     try:
-        body = await request.json()
-        status = body.get("status", "Resolved")
-        success = controller.violation_manager.update_status(violation_id, status)
+        success = controller.violation_manager.update_status(violation_id, request.status)
         if not success:
             raise HTTPException(status_code=404, detail="Violation not found")
-        return {"status": "success", "violation_id": violation_id, "new_status": status}
+        return {"status": "success", "violation_id": violation_id, "new_status": request.status}
     except HTTPException:
         raise
     except Exception as e:
@@ -322,3 +315,29 @@ async def test_pipeline(image: UploadFile = File(...)):
             status_code=500,
             detail=f"Error processing image: {str(e)}"
         )
+
+
+@app.post("/reset")
+async def reset_controller(request: Request = None):
+    """Reset the controller to initial state safely stopping background workers."""
+    try:
+        global controller, tester
+        if controller:
+            controller.stop_stream_worker()
+            if hasattr(controller, 'executor'):
+                controller.executor.shutdown(wait=False)
+        controller = Controller(load_config())
+        tester = Tester(controller)
+        return {"status": "success", "message": "Controller reset to initial state"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset controller: {str(e)}")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    global controller
+    if controller:
+        controller.stop_stream_worker()
+        if hasattr(controller, 'executor'):
+            controller.executor.shutdown(wait=False)

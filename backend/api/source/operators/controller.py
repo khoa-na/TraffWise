@@ -1,4 +1,6 @@
 import cv2
+import copy
+import threading
 import time
 import numpy as np
 import traceback
@@ -51,9 +53,12 @@ class Controller:
 
         self._latest_jpeg = None
         self._frame_condition = threading.Condition()
+        self._worker_lock = threading.Lock()
         self._worker_running = False
         self._worker_thread = None
         self._read_count = 0
+        self._cloud_uploads_submitted = set()
+        self._default_settings = copy.deepcopy(self.get_system_config())
 
     def init_components(self):
         self.vehicle_detector = VehicleDetector(self.config)
@@ -198,9 +203,6 @@ class Controller:
 
         try:
             self.video_path = self.config["samples"][self.camera_name]["video_path"]
-            self.update_parameters(self.params) if hasattr(
-                self, 'params') else {}
-
             self.cap = cv2.VideoCapture(self.video_path)
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
 
@@ -220,23 +222,35 @@ class Controller:
 
     def start_stream_worker(self):
         """Start single producer background thread if not already running."""
-        import threading
-        if not self._worker_running:
-            self._worker_running = True
-            self._worker_thread = threading.Thread(
-                target=self._producer_loop, daemon=True
-            )
-            self._worker_thread.start()
+        with self._worker_lock:
+            if not self._worker_running:
+                self._worker_running = True
+                self._worker_thread = threading.Thread(
+                    target=self._producer_loop, daemon=True
+                )
+                self._worker_thread.start()
 
     def stop_stream_worker(self):
-        """Stop background worker and release resources."""
-        self._worker_running = False
+        """Stop background worker and release resources safely."""
+        with self._worker_lock:
+            self._worker_running = False
+
         with self._frame_condition:
             self._frame_condition.notify_all()
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=2.0)
-        if hasattr(self, 'cap') and self.cap is not None:
-            self.cap.release()
+
+        if self._worker_thread and self._worker_thread.is_alive() and threading.current_thread() != self._worker_thread:
+            self._worker_thread.join(timeout=10.0)
+            if self._worker_thread.is_alive():
+                raise RuntimeError("Stream worker did not stop within 10 seconds")
+
+        with self._worker_lock:
+            if hasattr(self, 'cap') and self.cap is not None:
+                try:
+                    self.cap.release()
+                except Exception as e:
+                    print(f"Error releasing cap: {e}")
+                self.cap = None
+            self._worker_thread = None
 
     def _producer_loop(self):
         """Single background producer loop reading video and encoding JPEG frames."""
@@ -247,7 +261,11 @@ class Controller:
             PAUSED_FPS = 5
             paused_sleep_time = 1.0 / PAUSED_FPS
 
-            while self._worker_running:
+            while True:
+                with self._worker_lock:
+                    if not self._worker_running:
+                        break
+
                 if not self.cap.isOpened():
                     print("Video capture is not opened. Reinitializing...")
                     self.init_process_video()
@@ -362,8 +380,16 @@ class Controller:
         except Exception as e:
             print(f"Producer loop terminated: {e}")
         finally:
-            if hasattr(self, 'cap') and self.cap is not None:
-                self.cap.release()
+            with self._worker_lock:
+                self._worker_running = False
+                if hasattr(self, 'cap') and self.cap is not None:
+                    try:
+                        self.cap.release()
+                    except Exception:
+                        pass
+                    self.cap = None
+            with self._frame_condition:
+                self._frame_condition.notify_all()
 
     def yield_from_video(self):
         """Consumer generator returning stream frames from single background worker buffer."""
@@ -397,31 +423,34 @@ class Controller:
             if camera_name not in self.config["samples"]:
                 raise ValueError(f"Camera '{camera_name}' not found")
 
-            self.new_camera_name = camera_name
-            self.camera_name = self.new_camera_name
+            was_running = self._worker_running
+            if was_running:
+                self.stop_stream_worker()
+
+            self.camera_name = camera_name
             self.reinitialize_camera()
+            settings = self.get_camera_config(camera_name)
+            if settings:
+                self.update_parameters(settings)
 
-            if camera_name in self.camera_settings:
-                self.update_parameters(self.camera_settings[camera_name])
+            self.current_frame = None
+            self._latest_jpeg = None
+            if was_running:
+                self.start_stream_worker()
 
-            self.init_process_video()
             print(f"Camera switched to {self.camera_name}")
-
-            self.current_frame = self.cap.read()[1]
-            self.frame_skipper.fps_timer = time.time()
-            self.frame_skipper.frame_counter = 0
-            self.frame_skipper.total_skip_frames = 0
-
-            return self.get_camera_config(camera_name)
+            return copy.deepcopy(settings)
 
         except Exception as e:
             print(f"Error switching camera: {e}")
             raise
 
     def reinitialize_camera(self):
-        """Reinitialize components when switching camera"""
+        """Reinitialize components and reset tracking state when switching camera"""
         print("Reinitializing components for new camera...")
+        self.violation_manager.start_session()
         self.frame_skipper = AdaptiveFrameSkipper(self.config["frame_skipper"])
+        self.tracker = DeepSORT(self.config)
         self.road_manager = RoadManager(self.config, self.camera_name)
         self.rlv_detector = RedLightViolationDetector(
             self.road_manager, self.uploader)
@@ -556,13 +585,17 @@ class Controller:
             raise
 
     def get_camera_config(self, camera_id: str):
-        """Get configuration for a specific camera"""
+        """Get configuration for a specific camera (deep copied for isolation)"""
         if "samples" in self.config and camera_id not in self.config["samples"]:
             return None
         if camera_id in self.camera_settings:
-            return self.camera_settings[camera_id]
+            return copy.deepcopy(self.camera_settings[camera_id])
         if camera_id == self.camera_name:
-            return self.get_system_config()
+            current = self.get_system_config()
+            cfg = copy.deepcopy(self._default_settings)
+            if current and cfg:
+                cfg["speed_estimation"]["roads"] = current["speed_estimation"]["roads"]
+            return cfg
 
         # Build config for requested camera
         try:
@@ -583,20 +616,18 @@ class Controller:
                             "speed_limit": road_mgr.get_speed_limit(road_id, lane_id)
                         }
 
-            cfg = self.get_system_config()
+            cfg = copy.deepcopy(self._default_settings)
             if cfg and "speed_estimation" in cfg:
-                cfg = dict(cfg)
-                cfg["speed_estimation"] = dict(cfg["speed_estimation"])
                 cfg["speed_estimation"]["roads"] = road_speed_settings
             return cfg
         except Exception:
-            return self.get_system_config()
+            return copy.deepcopy(self._default_settings)
 
     def update_camera_parameters(self, camera_id: str, params: dict):
         """Update parameters for a specific camera"""
         if "samples" in self.config and camera_id not in self.config["samples"]:
             raise ValueError(f"Camera '{camera_id}' not found in configuration")
-        self.camera_settings[camera_id] = params
+        self.camera_settings[camera_id] = copy.deepcopy(params)
         if camera_id == self.camera_name:
             self.update_parameters(params)
 
@@ -618,171 +649,94 @@ class Controller:
             log (dict): The tracking and violation data dictionary
             frame (np.ndarray): The current video frame for capturing evidence
         """
-        # Handle speed violation
-        if self.speed_estimation_enabled \
-                and log["speed_violation"]:
+        from pathlib import Path
+        evidence_dir = Path(__file__).parent.parent.parent.parent / "violations" / "evidence"
+        evidence_dir.mkdir(exist_ok=True, parents=True)
 
+        violations_to_process = []
+        if self.speed_estimation_enabled and log["speed_violation"]:
             speed = int(log["speed"])
             speed_limit = int(log["speed_limit"])
             details = f"{speed} km/h (Limit: {speed_limit} km/h)"
-            image_url = self.capture_violation(frame.copy(), log, "speed")
-            plate_text, lp_img, _ = self.get_license_plate(log, frame)
-            self.violation_manager.add_violation(
-                log=log,
-                violation_type="speed",
-                location=f"Camera {self.camera_name}",
-                details=details,
-                image_url=image_url,
-                plate_text=plate_text,
-                lp_img=lp_img
-            )
+            violations_to_process.append(("speed", details))
 
-        # Handle red light violation
-        if self.red_light_detection_enabled \
-                and log["red_light_violation"]:
+        if self.red_light_detection_enabled and log["red_light_violation"]:
             details = "Crossed while light was red"
+            violations_to_process.append(("rlv", details))
 
-            image_url = self.capture_violation(frame.copy(), log, "rlv")
-
-            plate_text, lp_img, _ = self.get_license_plate(log, frame)
-            self.violation_manager.add_violation(
-                log=log,
-                violation_type="rlv",
-                location=f"Camera {self.camera_name}",
-                details=details,
-                image_url=image_url,
-                plate_text=plate_text,
-                lp_img=lp_img
-            )
-
-        # Handle wrong way violation
-        if self.wrong_lane_detection_enabled \
-                and log["wrong_way_violation"]:
-
+        if self.wrong_lane_detection_enabled and log["wrong_way_violation"]:
             details = "Vehicle driving in wrong direction"
+            violations_to_process.append(("wrong_way", details))
 
-            image_url = self.capture_violation(frame.copy(), log, "wrong_way")
+        for vtype, details in violations_to_process:
+            track_id = log["track_id"]
+            vehicle_class = self.class_names[log["class_id"]]
+            location = f"Camera {self.camera_name}"
+            loc_slug = location.replace(" ", "_")
+            v_id_key = (
+                f"{self.violation_manager.session_id}-"
+                f"{loc_slug}-{vehicle_class}-{track_id}-{vtype}"
+            )
+            existing = self.violation_manager.get_violation(v_id_key)
+
+            # Save local evidence image as fallback
+            local_filename = f"violation_{v_id_key}.jpg"
+            local_filepath = str(evidence_dir / local_filename)
+            local_url = (
+                existing["evidence"]
+                if existing and existing.get("evidence")
+                else f"/violations/evidence/{local_filename}"
+            )
+
+            if not existing:
+                try:
+                    if not cv2.imwrite(local_filepath, frame):
+                        local_url = None
+                        print(f"Failed to save local evidence image: {local_filepath}")
+                except Exception as e:
+                    local_url = None
+                    print(f"Error saving local evidence image: {e}")
 
             plate_text, lp_img, _ = self.get_license_plate(log, frame)
-
-            self.violation_manager.add_violation(
+            violation_id = self.violation_manager.add_violation(
                 log=log,
-                violation_type="wrong_way",
-                location=f"Camera {self.camera_name}",
+                violation_type=vtype,
+                location=location,
                 details=details,
-                image_url=image_url,
+                image_url=local_url,
                 plate_text=plate_text,
                 lp_img=lp_img
             )
 
-    def capture_violation(self, frame, log, violation_type):
-        """
-        Capture a violation image and upload it to Cloudinary asynchronously
+            # If Cloudinary is configured, submit async upload with SQLite callback
+            if (getattr(self.uploader, 'is_configured', False)
+                    and violation_id not in self._cloud_uploads_submitted):
+                self._cloud_uploads_submitted.add(violation_id)
+                if not self._submit_cloudinary_upload(
+                        frame, log, vtype, violation_id):
+                    self._cloud_uploads_submitted.discard(violation_id)
 
-        Args:
-            frame (np.ndarray): The frame to capture
-            log (dict): The tracking and violation data
-            violation_type (str): Type of violation (speed, rlv, wrong_way)
-
-        Returns:
-            str: URL placeholder that will be updated later with the real URL
-        """
+    def _submit_cloudinary_upload(self, frame, log, violation_type, violation_id):
+        """Submit background Cloudinary upload task without blocking main thread."""
         try:
-            track_id = log["track_id"]
-            timestamp = datetime.now().strftime('%H-%M-%S')
-
-            violation_frame = frame.copy()
-            violation_log = log.copy()
-
-            placeholder_url = f"pending_upload_{violation_type}_{track_id}_{timestamp}"
-
-            self.executor.submit(
-                self._process_violation_image,
-                violation_frame,
-                violation_log,
-                violation_type,
-                placeholder_url
-            )
-
-            return placeholder_url
-
-        except Exception as e:
-            print(f"Error in capture_violation: {e}")
-            return None
-
-    def _process_violation_image(self, frame, log, violation_type, placeholder_url):
-        """Background worker to process and upload the violation image"""
-        try:
-            try:
-                x1, y1, x2, y2 = map(int, log["ltrb"])
-                vehicle_class = self.class_names[log["class_id"]]
-                speed = int(log["speed"])
-                turn_type = log["turn_type"]
-                track_id = log["track_id"]
-            except (ValueError, KeyError, TypeError) as e:
-                print(f"Error extracting violation data: {e}")
-                if "ltrb" not in log:
-                    return None
-                x1, y1, x2, y2 = map(int, log["ltrb"])
-                vehicle_class = "unknown"
-                speed = 0
-                turn_type = "unknown"
-                track_id = log.get("track_id", 0)
-
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 10)
-
-            if violation_type == "speed":
-                text = f"Overspeed: {speed} km/h"
-            elif violation_type == "rlv":
-                text = "Red Light Violation"
-            elif violation_type == "wrong_way":
-                text = f"Wrong Way ({turn_type})"
-            else:
-                text = "Violation"
-
-            cv2.putText(frame, text, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-
-            cv2.putText(frame, f"Camera: {self.camera_name}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Vehicle: {vehicle_class}-{track_id}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
             date = datetime.now().strftime('%Y-%m-%d')
             folder_path = f"traffic_violations/{violation_type}/{date}"
-            public_id_prefix = f"{folder_path}/{track_id}"
+            public_id = f"{folder_path}/{violation_id}"
 
-            exists = False
-            if hasattr(self.uploader, 'file_exists_on_cloudinary'):
-                try:
-                    exists = self.uploader.file_exists_on_cloudinary(
-                        public_id_prefix)
-                except Exception as e:
-                    print(f"Error checking if file exists: {e}")
+            def callback(secure_url):
+                print(f"Cloudinary upload succeeded for {violation_id}: {secure_url}")
+                self.violation_manager.update_evidence(violation_id, secure_url)
 
-            if not exists:
-                timestamp = datetime.now().strftime('%H-%M-%S')
-                public_id = f"{public_id_prefix}_{timestamp}"
-                result = self.uploader.upload_violation(
-                    frame, public_id, folder_path)
-                print(f"Captured {violation_type} violation!")
-
-                if result and 'secure_url' in result:
-                    real_url = result['secure_url']
-
-                    for violation in self.violation_manager.violations:
-                        if violation["evidence"] == placeholder_url:
-                            violation["evidence"] = real_url
-                            print(f"Updated violation image URL: {real_url}")
-                            break
-
-                    return real_url
-
+            future = self.uploader.upload_violation(
+                frame.copy(),
+                public_id,
+                folder_path,
+                callback=callback
+            )
+            return future is not None
         except Exception as e:
-            print(f"Error processing violation image: {e}")
-            return None
+            print(f"Error submitting Cloudinary upload: {e}")
+            return False
 
     def get_system_config(self):
         """Get current system configuration"""

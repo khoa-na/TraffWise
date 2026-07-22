@@ -1,4 +1,10 @@
-import { createContext, useState, useContext, useEffect } from "react";
+import {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useCallback,
+} from "react";
 import { API_URL } from "../api";
 
 const DataContext = createContext();
@@ -22,7 +28,7 @@ export function DataProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchViolations = async () => {
+  const fetchViolations = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await fetch(`${API_URL}/api/violations`);
@@ -39,8 +45,7 @@ export function DataProvider({ children }) {
       console.error("Error fetching violations:", err);
       setError("Failed to load violation data. Please try again later.");
       // If server isn't responding, use demo data
-      if (violations.length === 0) {
-        setViolations([
+      setViolations((current) => current.length === 0 ? [
           {
             id: "demo-1",
             plate: "car-001",
@@ -71,19 +76,18 @@ export function DataProvider({ children }) {
             laneDetails: "Entered wrong lane in turn",
             evidence: "https://placehold.co/1400x800",
           },
-        ]);
-      }
+        ] : current);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
   useEffect(() => {
     fetchViolations();
 
     const intervalId = setInterval(fetchViolations, 10000);
 
     return () => clearInterval(intervalId);
-  }, []);
+  }, [fetchViolations]);
 
   return (
     <DataContext.Provider
