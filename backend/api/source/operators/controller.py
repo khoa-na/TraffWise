@@ -25,6 +25,7 @@ class Controller:
             (192, 192, 192)
         ]
         self.camera_name = camera_name
+        self.camera_settings = {}
         self.frame_skipper = AdaptiveFrameSkipper(config["frame_skipper"])
         self.uploader = AsyncCloudinaryUploader()
         self.violation_manager = ViolationManager(self.class_names)
@@ -47,6 +48,12 @@ class Controller:
         self.speed_estimation_enabled = True
         self.red_light_detection_enabled = True
         self.wrong_lane_detection_enabled = True
+
+        self._latest_jpeg = None
+        self._frame_condition = threading.Condition()
+        self._worker_running = False
+        self._worker_thread = None
+        self._read_count = 0
 
     def init_components(self):
         self.vehicle_detector = VehicleDetector(self.config)
@@ -144,44 +151,44 @@ class Controller:
         if self.red_light_detection_enabled:
             frame = self.rlv_detector.detect_traffic_light_color(frame)
 
-        if self.show_annotations:
-            for track in tracks:
-                if not track.is_confirmed():
-                    continue
-                track_id = track.track_id
+        for track in tracks:
+            if not track.is_confirmed():
+                continue
+            track_id = track.track_id
 
-                ltrb = track.to_ltrb()
-                class_id = int(track.get_det_class())
-                speed_violation, speed, speed_limit = False, 0, 0
-                wrong_way_violation, turn_type = False, "unknown"
-                red_light_violation = False
+            ltrb = track.to_ltrb()
+            class_id = int(track.get_det_class())
+            speed_violation, speed, speed_limit = False, 0, 0
+            wrong_way_violation, turn_type = False, "unknown"
+            red_light_violation = False
 
-                if self.speed_estimation_enabled:
-                    speed_violation, speed, speed_limit = self.speed_estimator.detect_speed(
-                        track_id, ltrb, current_timestamp)
+            if self.speed_estimation_enabled:
+                speed_violation, speed, speed_limit = self.speed_estimator.detect_speed(
+                    track_id, ltrb, current_timestamp)
 
-                if self.wrong_lane_detection_enabled:
-                    wrong_way_violation, turn_type = self.wrong_way.detect_violation(
-                        track_id, ltrb, speed)
+            if self.wrong_lane_detection_enabled:
+                wrong_way_violation, turn_type = self.wrong_way.detect_violation(
+                    track_id, ltrb, speed)
 
-                if self.red_light_detection_enabled:
-                    red_light_violation = self.rlv_detector.detect_red_light_violation(
-                        track_id, ltrb)
+            if self.red_light_detection_enabled:
+                red_light_violation = self.rlv_detector.detect_red_light_violation(
+                    track_id, ltrb)
 
-                log = dict(
-                    track_id=track_id,
-                    ltrb=ltrb,
-                    class_id=class_id,
-                    speed=speed,
-                    speed_limit=speed_limit,
-                    turn_type=turn_type,
-                    speed_violation=speed_violation,
-                    wrong_way_violation=wrong_way_violation,
-                    red_light_violation=red_light_violation
-                )
+            log = dict(
+                track_id=track_id,
+                ltrb=ltrb,
+                class_id=class_id,
+                speed=speed,
+                speed_limit=speed_limit,
+                turn_type=turn_type,
+                speed_violation=speed_violation,
+                wrong_way_violation=wrong_way_violation,
+                red_light_violation=red_light_violation
+            )
 
-                self.handle_violation(log, violation_frame)
+            self.handle_violation(log, violation_frame)
 
+            if self.show_annotations:
                 self.draw_track(frame, log)
 
         return frame
@@ -211,57 +218,74 @@ class Controller:
                 self.cap.release()
             raise
 
-    def yield_from_video(self):
+    def start_stream_worker(self):
+        """Start single producer background thread if not already running."""
+        import threading
+        if not self._worker_running:
+            self._worker_running = True
+            self._worker_thread = threading.Thread(
+                target=self._producer_loop, daemon=True
+            )
+            self._worker_thread.start()
+
+    def stop_stream_worker(self):
+        """Stop background worker and release resources."""
+        self._worker_running = False
+        with self._frame_condition:
+            self._frame_condition.notify_all()
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
+        if hasattr(self, 'cap') and self.cap is not None:
+            self.cap.release()
+
+    def _producer_loop(self):
+        """Single background producer loop reading video and encoding JPEG frames."""
         try:
             self.init_process_video()
-            video_fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+            video_fps = int(self.cap.get(cv2.CAP_PROP_FPS)) or 30
 
             PAUSED_FPS = 5
-            paused_sleep_time = 1.0/PAUSED_FPS
+            paused_sleep_time = 1.0 / PAUSED_FPS
 
-            while True:
+            while self._worker_running:
                 if not self.cap.isOpened():
                     print("Video capture is not opened. Reinitializing...")
                     self.init_process_video()
+                    time.sleep(0.1)
                     continue
 
                 if self.switch_model_flag:
                     self.vehicle_detector.switch_model(self.new_model)
                     self.switch_model_flag = False
 
-                # Handle pause state
                 if self.is_paused:
                     if hasattr(self, 'current_frame') and self.current_frame is not None:
-                        # Add pause indicator text
-
                         if self.show_annotations:
                             paused_frame = self.current_frame.copy()
                             self.draw_road_structure(paused_frame)
                         else:
                             paused_frame = self.frame_origin
 
-                        cv2.putText(paused_frame, "PAUSED", (paused_frame.shape[1]//2 - 100, 50),
+                        cv2.putText(paused_frame, "PAUSED", (paused_frame.shape[1] // 2 - 100, 50),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
-
                         _, jpeg = cv2.imencode(".jpg", paused_frame)
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-                        time.sleep(paused_sleep_time)
-                        continue
                     else:
-                        # If no frame is available, show pause message
                         blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
                         cv2.putText(blank_frame, "Paused", (280, 240),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                         _, jpeg = cv2.imencode(".jpg", blank_frame)
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-                        time.sleep(paused_sleep_time)
-                        continue
+
+                    with self._frame_condition:
+                        self._latest_jpeg = jpeg.tobytes()
+                        self._frame_condition.notify_all()
+
+                    time.sleep(paused_sleep_time)
+                    continue
 
                 process_start_time = time.time()
 
                 ret, frame = self.cap.read()
+                self._read_count += 1
 
                 if not ret:
                     print("End of video - restarting from beginning")
@@ -274,6 +298,7 @@ class Controller:
                     ret, frame = self.cap.read()
                     if not ret:
                         print("Error reading first frame after reset")
+                        time.sleep(0.1)
                         continue
 
                 self.frame_origin = frame.copy()
@@ -285,12 +310,10 @@ class Controller:
                     frame = self.process_frame(frame)
 
                     if self.frame_skipper.frame_counter >= 5:
-                        self.speed_estimator.fps = max(
-                            1.0, self.frame_skipper.current_fps)
+                        self.speed_estimator.fps = max(1.0, self.frame_skipper.current_fps)
 
                     processing_time = time.time() - process_start_time
-                    self.frame_skipper.adjust_skip_rate(
-                        processing_time, video_fps)
+                    self.frame_skipper.adjust_skip_rate(processing_time, video_fps)
                     self.frame_skipper.update_fps()
 
                     if self.frame_skipper.frame_counter > 5:
@@ -298,47 +321,64 @@ class Controller:
 
                     fps_text = f"FPS: {self.frame_skipper.current_fps:.1f}"
                     skip_text = f"Skip: {self.frame_skipper.total_skip_frames} frames"
-                    proc_text = f"Proc time: {processing_time*1000:.1f}ms"
+                    proc_text = f"Proc time: {processing_time * 1000:.1f}ms"
                     model_text = f"Model: {self.vehicle_detector.model_type}"
                     camera_text = f"Camera: {self.camera_name}"
 
-                    cv2.putText(frame, fps_text, (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, skip_text, (10, 60),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, proc_text, (10, 90),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, model_text, (10, 120),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, camera_text, (10, 150),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    if self.show_annotations:
+                        cv2.putText(frame, fps_text, (10, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(frame, skip_text, (10, 60),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(frame, proc_text, (10, 90),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(frame, model_text, (10, 120),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(frame, camera_text, (10, 150),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                     self.current_frame = frame.copy()
+                    if self.show_annotations:
+                        self.draw_road_structure(frame)
 
-                    self.draw_road_structure(frame)
                     _, jpeg = cv2.imencode(".jpg", frame)
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+
+                    with self._frame_condition:
+                        self._latest_jpeg = jpeg.tobytes()
+                        self._frame_condition.notify_all()
 
                 except Exception as e:
-                    print(f"Error processing frame: {e}")
+                    print(f"Error processing frame in producer loop: {e}")
                     traceback.print_exc()
                     blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
                     cv2.putText(blank_frame, "Error processing frame", (50, 240),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                     _, jpeg = cv2.imencode(".jpg", blank_frame)
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                    with self._frame_condition:
+                        self._latest_jpeg = jpeg.tobytes()
+                        self._frame_condition.notify_all()
                     time.sleep(0.5)
 
         except Exception as e:
-            print(f"Error in video streaming: {str(e)}")
-            if hasattr(self, 'cap') and self.cap is not None:
-                self.cap.release()
-            raise
+            print(f"Producer loop terminated: {e}")
         finally:
             if hasattr(self, 'cap') and self.cap is not None:
                 self.cap.release()
+
+    def yield_from_video(self):
+        """Consumer generator returning stream frames from single background worker buffer."""
+        self.start_stream_worker()
+
+        last_yielded = None
+        while self._worker_running:
+            with self._frame_condition:
+                self._frame_condition.wait(timeout=0.5)
+                frame_bytes = self._latest_jpeg
+
+            if frame_bytes and frame_bytes != last_yielded:
+                last_yielded = frame_bytes
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
     def toggle_pause(self):
         """Toggle the pause state of the video."""
@@ -354,10 +394,16 @@ class Controller:
     def switch_camera(self, camera_name):
         """Switch camera"""
         try:
-            self.new_camera_name = camera_name
+            if camera_name not in self.config["samples"]:
+                raise ValueError(f"Camera '{camera_name}' not found")
 
+            self.new_camera_name = camera_name
             self.camera_name = self.new_camera_name
             self.reinitialize_camera()
+
+            if camera_name in self.camera_settings:
+                self.update_parameters(self.camera_settings[camera_name])
+
             self.init_process_video()
             print(f"Camera switched to {self.camera_name}")
 
@@ -366,7 +412,7 @@ class Controller:
             self.frame_skipper.frame_counter = 0
             self.frame_skipper.total_skip_frames = 0
 
-            return self.get_system_config()
+            return self.get_camera_config(camera_name)
 
         except Exception as e:
             print(f"Error switching camera: {e}")
@@ -399,8 +445,9 @@ class Controller:
 
     def __del__(self):
         """Close ThreadPoolExecutor when program ends."""
-        self.executor.shutdown(wait=True)
-        print("Close all threads!")
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=True)
+            print("Close all threads!")
 
     def reset_state(self, camera_id=None):
         """
@@ -507,6 +554,51 @@ class Controller:
         except Exception as e:
             print(f"Error in update_parameters: {str(e)}")
             raise
+
+    def get_camera_config(self, camera_id: str):
+        """Get configuration for a specific camera"""
+        if "samples" in self.config and camera_id not in self.config["samples"]:
+            return None
+        if camera_id in self.camera_settings:
+            return self.camera_settings[camera_id]
+        if camera_id == self.camera_name:
+            return self.get_system_config()
+
+        # Build config for requested camera
+        try:
+            road_mgr = RoadManager(self.config, camera_id)
+            road_config = road_mgr.road_config
+            road_speed_settings = {}
+
+            for road_id, road_data in road_config.items():
+                if road_id == "intersection":
+                    road_speed_settings[road_id] = {
+                        "speed_limit": road_mgr.get_speed_limit("intersection")
+                    }
+                else:
+                    road_speed_settings[road_id] = {}
+                    lanes = {k: v for k, v in road_data.items() if k.startswith("lane_")}
+                    for lane_id in lanes:
+                        road_speed_settings[road_id][lane_id] = {
+                            "speed_limit": road_mgr.get_speed_limit(road_id, lane_id)
+                        }
+
+            cfg = self.get_system_config()
+            if cfg and "speed_estimation" in cfg:
+                cfg = dict(cfg)
+                cfg["speed_estimation"] = dict(cfg["speed_estimation"])
+                cfg["speed_estimation"]["roads"] = road_speed_settings
+            return cfg
+        except Exception:
+            return self.get_system_config()
+
+    def update_camera_parameters(self, camera_id: str, params: dict):
+        """Update parameters for a specific camera"""
+        if "samples" in self.config and camera_id not in self.config["samples"]:
+            raise ValueError(f"Camera '{camera_id}' not found in configuration")
+        self.camera_settings[camera_id] = params
+        if camera_id == self.camera_name:
+            self.update_parameters(params)
 
     def get_license_plate(self, log, frame):
         box = map(int, log["ltrb"])

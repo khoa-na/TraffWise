@@ -1,264 +1,209 @@
 # TraffWise
 
-TraffWise is a full-stack traffic monitoring demo built with computer vision,
-FastAPI, and React. It processes sample traffic-camera videos, tracks vehicles,
-detects violations, reads license plates, and streams annotated frames to a web
-dashboard.
+TraffWise is a full-stack traffic monitoring system built with computer vision, FastAPI, and React. It processes traffic-camera feeds, tracks vehicles, detects traffic violations (speeding, red-light running, wrong-way driving), performs license plate OCR, and streams annotated video feeds to a real-time web dashboard.
 
-The Git repository contains only code and configuration. The 2.86 GB runtime
-asset bundle is downloaded from the public
-[`khoa-na/traffwise-assets`](https://huggingface.co/datasets/khoa-na/traffwise-assets)
-dataset and verified with SHA-256 before use.
+## Demo
+
+> [!NOTE]
+> Below are preview assets demonstrating the live dashboard and vehicle monitoring pipeline.
+
+[![TraffWise Demo Video](docs/images/demo-thumbnail.png)](https://github.com/khoa-na/TraffWise)
+*Click the thumbnail above to watch the full system demonstration video.*
+
+![Traffic Monitoring Dashboard](docs/images/camera-monitor.png)
+*Real-time multi-camera monitoring view with vehicle tracking, speed estimation, and lane overlay.*
+
+![Violation Detection & Plate OCR](docs/images/violation-detail.png)
+*Detailed violation view featuring vehicle snapshot, speed calculation, and license plate OCR recognition.*
+
+---
 
 ## Features
 
-- Vehicle detection with YOLO11, RT-DETRv2, or Faster R-CNN
-- DeepSORT vehicle tracking
-- Speed, red-light, and wrong-lane violation detection
-- License-plate detection and EasyOCR recognition
-- Seven included sample cameras
-- CPU mode and NVIDIA GPU acceleration
+- **Multi-Model Vehicle Detection**: Support for YOLO11, RT-DETRv2, and Faster R-CNN detectors.
+- **Robust Tracking**: DeepSORT multi-object tracking for frame-to-frame vehicle persistence.
+- **Traffic Violation Suite**: Speed estimation, red-light violation, and wrong-lane driving detection.
+- **Automated License Plate Recognition**: License plate detection and EasyOCR text extraction.
+- **Interactive Web Dashboard**: React frontend for camera switching, parameter tuning, and violation report generation.
+- **CPU & NVIDIA GPU Support**: Optimized execution pipeline for both CPU and CUDA-accelerated hardware.
 
-## Repository layout
+---
+
+## Quantitative Evaluation & Model Selection
+
+### Detector Accuracy Benchmark
+
+Evaluation performed on validation split (best epoch selected by validation mAP50-95):
+
+| Model | Precision | Recall | mAP50 | mAP50-95 | Weight Size | Framework |
+|---|---:|---:|---:|---:|---:|---|
+| **YOLO11** (Selected Default) | **0.8678** | **0.8538** | **0.9273** | **0.7521** | 5.5 MB | Ultralytics / PyTorch |
+| **RT-DETRv2** | 0.8452 | 0.8017 | 0.8625 | 0.6285 | 5.9 MB | PyTorch |
+| **Faster R-CNN** | 0.3471 | 0.3641 | 0.9015 | 0.6649 | 65.2 MB | torchvision |
+| **License Plate Detector** | 0.9912 | 0.9889 | 0.9942 | 0.8350 | 5.4 MB | Ultralytics / PyTorch |
+
+### Model Selection Rationale
+
+- **Default Model**: **YOLO11** is chosen as the default real-time detector because it achieves the highest mAP50-95 (**0.7521**) and mAP50 (**0.9273**) while maintaining a compact weight size of **5.5 MB** and low inference latency.
+- **Transformer Alternative**: **RT-DETRv2** provides end-to-end NMS-free detection but trades off slightly lower mAP50-95 on the validation split.
+- **Two-Stage Comparison**: **Faster R-CNN** achieves reasonable mAP50 (0.9015) but requires significantly larger memory overhead (65.2 MB) and higher inference latency.
+- **Pipeline Bottlenecks**: In CPU mode, license plate crop OCR and MJPEG frame encoding are the primary processing bottlenecks; GPU mode accelerates both object detection and feature extraction.
+
+---
+
+## Architecture & System Design
+
+```mermaid
+flowchart LR
+    V[Sample Camera Feed] --> D[Vehicle Detector]
+    D --> T[DeepSORT Tracker]
+    T --> S[Speed Estimator]
+    T --> R[Red-Light Detector]
+    T --> W[Wrong-Way Detector]
+    S --> M[Violation Manager]
+    R --> M
+    W --> M
+    M --> O[License Plate OCR]
+    M --> E[Evidence Storage / SQLite]
+    T --> J[MJPEG Stream Worker]
+    J --> A[FastAPI Backend]
+    M --> A
+    A --> F[React Dashboard]
+```
+
+### Component Responsibilities
+
+- **`VehicleDetector`**: Unified wrapper normalizing bounding box predictions across YOLO11, RT-DETRv2, and Faster R-CNN.
+- **`DeepSORT`**: Maintains object track identities across consecutive video frames.
+- **`RoadManager`**: Parses camera-specific road geometries, lane boundaries, and perspective transform matrices.
+- **`SpeedEstimator`**: Maps pixel displacements to ground distances to estimate speed in km/h.
+- **`Violation Detectors`**: Evaluates track trajectories against red-light zones, speed limits, and directional vectors.
+- **`LicensePlateProcessor`**: Crops vehicle license plate regions and executes EasyOCR text extraction.
+- **`ViolationManager`**: Deduplicates violation events and persists records to SQLite.
+- **`MJPEG Stream Worker`**: Single background producer serving frame buffers to multiple connected web clients.
+- **FastAPI / React**: RESTful API control plane and interactive user dashboard.
+
+### System Lifecycle & Trade-Offs
+
+- **Model Initialization**: Pretrained models are loaded into memory on backend startup; model switching reuses memory pools.
+- **Camera Switching**: Switching cameras resets DeepSORT track IDs and loads camera-specific lane annotations and perspective calibrations.
+- **Stream Concurrency**: A single background producer thread processes frames and encodes MJPEG buffers shared across all connected clients.
+- **Known Limitations**: Demo videos use fixed sample files; speed estimation accuracy depends on perspective calibration quality; OCR accuracy degrades under extreme blur or low light.
+
+---
+
+## Repository Layout
 
 ```text
 backend/                 FastAPI API and computer-vision pipeline
   api/configs/           Runtime configuration
-  api/data/              Downloaded weights and videos (not committed)
-  api/source/            Detection, tracking, OCR, and violation code
+  api/data/              Downloaded weights and videos (excluded from git)
+  api/source/            Detection, tracking, OCR, and violation logic
 frontend/                React dashboard
-notebooks/               Training and evaluation notebooks
-scripts/download_assets.py
-assets-manifest.json     Pinned asset URLs, sizes, and SHA-256 hashes
-docker-compose.yml       CPU-compatible configuration
-docker-compose.gpu.yml   NVIDIA GPU override
+notebooks/               Training and evaluation notebooks & CSV logs
+scripts/download_assets.py Asset verification and download helper
+assets-manifest.json     Pinned asset SHA-256 manifest
+docker-compose.yml       CPU-compatible container orchestration
+docker-compose.gpu.yml   NVIDIA GPU override configuration
 ```
+
+---
 
 ## Prerequisites
 
-Install the following on the host machine:
+- **Git**
+- **Python 3.9+** (used for asset downloader script)
+- **Docker Engine & Docker Compose Plugin** (or Docker Desktop)
+- Free disk space: **12 GB minimum** (20 GB recommended for build cache)
 
-- Git
-- Python 3.9 or newer, used only by the asset downloader
-- Docker Engine with the Compose plugin, or Docker Desktop
-- At least 12 GB of free disk space; 20 GB is recommended for Docker build cache
+---
 
-Windows users should run the project inside WSL 2. Docker Desktop must use its
-WSL 2 backend and have integration enabled for the selected Ubuntu distro.
+## Quick Start: CPU
 
-Node.js, CUDA Toolkit, and backend Python packages do not need to be installed
-on the host; Docker provides them.
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/khoa-na/TraffWise.git
+   cd TraffWise
+   ```
 
-## Quick start: CPU
+2. **Download and verify asset bundle**:
+   ```bash
+   python3 scripts/download_assets.py
+   ```
 
-Clone the repository:
-```bash
-git clone https://github.com/khoa-na/TraffWise.git
-cd TraffWise
-```
+3. **Start services**:
+   ```bash
+   docker compose up -d --build
+   ```
 
-Download and verify the required model weights, videos, and annotations:
+4. **Access web interfaces**:
+   - Dashboard: <http://localhost:3200>
+   - Swagger API docs: <http://localhost:8000/docs>
+   - OpenAPI schema: <http://localhost:8000/openapi.json>
 
-```bash
-python3 scripts/download_assets.py
-```
+---
 
-The command downloads 18 files into `backend/api/data`. Interrupted downloads
-continue from their `.part` files. Re-running the command skips valid files.
+## Quick Start: NVIDIA GPU
 
-Start the application:
+1. **Verify GPU availability in Docker**:
+   ```bash
+   nvidia-smi
+   docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
+   ```
 
-```bash
-docker compose up -d --build
-```
+2. **Launch with GPU override**:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+   ```
 
-The first build downloads the Docker dependencies. The first backend start may
-also download about 100 MB of EasyOCR files; they are cached under
-`backend/api/data/.easyocr`.
+3. **Confirm PyTorch CUDA detection**:
+   ```bash
+   docker compose exec backend python -c \
+     "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+   ```
 
-Open:
+---
 
-- Dashboard: <http://localhost:3200>
-- Swagger API documentation: <http://localhost:8000/docs>
-- OpenAPI schema: <http://localhost:8000/openapi.json>
+## Environment & Cloudinary Setup
 
-## Quick start: NVIDIA GPU
-
-GPU mode requires an NVIDIA GPU, a current NVIDIA driver, and GPU support in
-Docker. On Windows, update WSL from PowerShell and restart it:
-
-```powershell
-wsl --update
-wsl --shutdown
-```
-
-Verify that WSL and Docker can access the GPU:
-
-```bash
-nvidia-smi
-docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
-```
-
-Start TraffWise with the GPU override:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-```
-
-Verify PyTorch is using CUDA:
-
-```bash
-docker compose exec backend python -c \
-  "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
-```
-
-An RTX 5060 should report output similar to:
-
-```text
-2.7.1+cu128
-True
-NVIDIA GeForce RTX 5060
-```
-
-## Optional Cloudinary configuration
-
-The dashboard and local inference work without Cloudinary. Cloud uploads for
-violation images require credentials.
-
-Create a local environment file:
+Local evidence storage works out of the box. Optional Cloudinary integration for cloud evidence hosting can be configured via `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Then set:
-
+Set the following variables in `.env`:
 ```dotenv
 CLOUDINARY_CLOUD_NAME=your-cloud-name
 CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
 ```
 
-Never commit `.env`; it is already ignored by Git.
+---
 
-## Useful commands
+## Useful Commands
 
-Check that every downloaded asset is present and valid:
+- **Verify downloaded asset checksums**:
+  ```bash
+  python3 scripts/download_assets.py --verify-only
+  ```
+- **Check container status**:
+  ```bash
+  docker compose ps
+  ```
+- **View backend logs**:
+  ```bash
+  docker compose logs -f --tail=100 backend
+  ```
+- **Stop containers**:
+  ```bash
+  docker compose down
+  ```
 
-```bash
-python3 scripts/download_assets.py --verify-only
-```
+---
 
-Show service status:
+## License & Data Attribution
 
-```bash
-docker compose ps
-```
-
-Follow backend logs:
-
-```bash
-docker compose logs -f --tail=100 backend
-```
-
-Restart the services:
-
-```bash
-docker compose restart
-```
-
-Stop and remove the containers and network without deleting downloaded assets:
-
-```bash
-docker compose down
-```
-
-Rebuild after changing dependencies or Dockerfiles:
-
-```bash
-docker compose up -d --build --force-recreate
-```
-
-For GPU mode, include both Compose files in commands that recreate the backend:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
-  up -d --build --force-recreate
-```
-
-## Troubleshooting
-
-### `Cannot connect to the Docker daemon`
-
-Start Docker Desktop. On Windows, confirm Docker Desktop uses the WSL 2 backend
-and that WSL integration is enabled for the current distro.
-
-### `could not select device driver ... with capabilities: [[gpu]]`
-
-Docker cannot access the NVIDIA GPU. Update the NVIDIA Windows driver and WSL,
-restart Docker Desktop, and rerun the two `nvidia-smi` checks above. CPU mode
-remains available with the base `docker-compose.yml` only.
-
-### Dashboard displays `No Signal`
-
-The backend may still be loading models or EasyOCR. Check:
-
-```bash
-docker compose logs -f --tail=100 backend
-curl http://localhost:8000/openapi.json
-```
-
-The frontend retries the MJPEG stream automatically. Refresh the dashboard once
-the backend API responds.
-
-### Asset download fails or a checksum is invalid
-
-Run the downloader again. It resumes `.part` files and replaces an asset only
-after its size and SHA-256 checksum match:
-
-```bash
-python3 scripts/download_assets.py
-```
-
-The pinned source revision is recorded in `assets-manifest.json`.
-
-### Port 3200 or 8000 is already in use
-
-Stop the process using that port, or change the host side of the relevant port
-mapping in `docker-compose.yml`.
-
-## Local development without Docker
-
-Docker is the supported setup. For direct local development, use Python 3.10
-or 3.11 for the backend:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-cd backend
-python server.py
-```
-
-Start the frontend in a second terminal:
-
-```bash
-cd frontend
-npm ci
-npm start
-```
-
-The frontend development server listens on port 3000; the Docker setup exposes
-it on port 3200 because some Windows installations reserve port 3000.
-
-## Data and reproducibility
-
-Runtime assets are intentionally excluded from Git by `.gitignore`. Their
-paths, sizes, SHA-256 hashes, and immutable Hugging Face revision are recorded
-in `assets-manifest.json`.
-
-The notebooks document the original experiments but reference external Kaggle
-datasets and are not required to run the dashboard.
-
-Camera 8 is not included because its source video and annotation are
-unavailable. Cameras 1 through 7 are fully configured.
+- **Code License**: Source code is licensed under the [MIT License](LICENSE).
+- **Model Weights & Sample Media**: Distributed separately via Hugging Face [`khoa-na/traffwise-assets`](https://huggingface.co/datasets/khoa-na/traffwise-assets).
+- **Dataset Attribution**: External datasets and baseline pre-trained model weights retain their respective original licenses and usage terms.

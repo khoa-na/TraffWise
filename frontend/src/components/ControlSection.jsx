@@ -10,6 +10,7 @@ import {
 import "./ControlSection.css";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useData } from "../contexts/DataProvider";
+import { API_URL } from "../api";
 
 export default function ControlSection({ togglePanel, activePanel, cameraId }) {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     const newState = !isOn;
 
     try {
-      const response = await fetch("http://localhost:8000/toggle_annotations", {
+      const response = await fetch(`${API_URL}/toggle_annotations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -67,13 +68,13 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
         setSelectedCamera(newCameraId);
 
         try {
-          await fetch("http://localhost:8000/set_model", {
+          await fetch(`${API_URL}/set_model`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ model_type: "yolo11" }),
           });
 
-          await fetch("http://localhost:8000/set_camera", {
+          await fetch(`${API_URL}/set_camera`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ camera_id: newCameraId }),
@@ -97,7 +98,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
   useEffect(() => {
     const fetchPauseState = async () => {
       try {
-        const response = await fetch("http://localhost:8000/toggle_pause", {
+        const response = await fetch(`${API_URL}/toggle_pause`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -114,17 +115,13 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
         console.error("Error fetching pause state:", err);
       }
     };
-
-    // if (isMonitorPage) {
-    //   fetchPauseState();
-    // }
   }, [location.pathname]);
 
   useEffect(() => {
     const initAnnotationState = async () => {
       if (isMonitorPage) {
         try {
-          await fetch("http://localhost:8000/toggle_annotations", {
+          await fetch(`${API_URL}/toggle_annotations`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ show_annotations: true }),
@@ -149,7 +146,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/set_model", {
+      const response = await fetch(`${API_URL}/set_model`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -177,7 +174,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/set_camera", {
+      const response = await fetch(`${API_URL}/set_camera`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -203,7 +200,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
     setCaptureStatus("Capturing...");
 
     try {
-      const response = await fetch("http://localhost:8000/capture_frame", {
+      const response = await fetch(`${API_URL}/capture_frame`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -241,7 +238,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
   const handlePlayPause = async () => {
     setError(null);
     try {
-      const response = await fetch("http://localhost:8000/toggle_pause", {
+      const response = await fetch(`${API_URL}/toggle_pause`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -361,7 +358,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //     const newState = !isOn;
 
 //     try {
-//       const response = await fetch("http://localhost:8000/toggle_annotations", {
+//       const response = await fetch(`${API_URL}/toggle_annotations", {
 //         method: "POST",
 //         headers: {
 //           "Content-Type": "application/json",
@@ -437,21 +434,21 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 
 //         try {
 //           // Apply current model setting
-//           await fetch("http://localhost:8000/set_model", {
+//           await fetch(`${API_URL}/set_model", {
 //             method: "POST",
 //             headers: { "Content-Type": "application/json" },
 //             body: JSON.stringify({ model_type: selectedModel }),
 //           });
 
 //           // Set camera without resetting settings
-//           await fetch("http://localhost:8000/set_camera", {
+//           await fetch(`${API_URL}/set_camera", {
 //             method: "POST",
 //             headers: { "Content-Type": "application/json" },
 //             body: JSON.stringify({ camera_id: newCameraId }),
 //           });
 
 //           // Apply current annotation setting
-//           await fetch("http://localhost:8000/toggle_annotations", {
+//           await fetch(`${API_URL}/toggle_annotations", {
 //             method: "POST",
 //             headers: { "Content-Type": "application/json" },
 //             body: JSON.stringify({ show_annotations: isOn }),
@@ -486,7 +483,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //   useEffect(() => {
 //     const fetchPauseState = async () => {
 //       try {
-//         const response = await fetch("http://localhost:8000/toggle_pause", {
+//         const response = await fetch(`${API_URL}/toggle_pause", {
 //           method: "POST",
 //           headers: {
 //             "Content-Type": "application/json",
@@ -519,7 +516,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //     setError(null);
 
 //     try {
-//       const response = await fetch("http://localhost:8000/set_model", {
+//       const response = await fetch(`${API_URL}/set_model", {
 //         method: "POST",
 //         headers: {
 //           "Content-Type": "application/json",
@@ -558,7 +555,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //     setError(null);
 
 //     try {
-//       const response = await fetch("http://localhost:8000/set_camera", {
+//       const response = await fetch(`${API_URL}/set_camera", {
 //         method: "POST",
 //         headers: {
 //           "Content-Type": "application/json",
@@ -587,7 +584,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //     setCaptureStatus("Capturing...");
 
 //     try {
-//       const response = await fetch("http://localhost:8000/capture_frame", {
+//       const response = await fetch(`${API_URL}/capture_frame", {
 //         method: "POST",
 //         headers: {
 //           "Content-Type": "application/json",
@@ -625,7 +622,7 @@ export default function ControlSection({ togglePanel, activePanel, cameraId }) {
 //   const handlePlayPause = async () => {
 //     setError(null);
 //     try {
-//       const response = await fetch("http://localhost:8000/toggle_pause", {
+//       const response = await fetch(`${API_URL}/toggle_pause", {
 //         method: "POST",
 //         headers: {
 //           "Content-Type": "application/json",

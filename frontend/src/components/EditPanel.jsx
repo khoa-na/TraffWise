@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import "./EditPanel.css";
+import { API_URL } from "../api";
 
 const getDefaultSettings = () => ({
   general_setting: {
@@ -109,7 +110,7 @@ export default function EditPanel({ cameraId }) {
 
         try {
           const response = await fetch(
-            `http://localhost:8000/api/camera/${cameraId}/parameters`,
+            `${API_URL}/api/camera/${cameraId}/parameters`,
             {
               method: "POST",
               headers: {
@@ -143,7 +144,7 @@ export default function EditPanel({ cameraId }) {
         allCameraSettings[cameraId] = parsedSettings;
 
         const response = await fetch(
-          `http://localhost:8000/api/camera/${cameraId}/parameters`,
+          `${API_URL}/api/camera/${cameraId}/parameters`,
           {
             method: "POST",
             headers: {
@@ -162,7 +163,7 @@ export default function EditPanel({ cameraId }) {
       } else {
         try {
           const response = await fetch(
-            `http://localhost:8000/api/camera/${cameraId}/config`
+            `${API_URL}/api/camera/${cameraId}/config`
           );
           if (!response.ok) throw new Error("Failed to fetch config");
           const data = await response.json();
@@ -224,7 +225,7 @@ export default function EditPanel({ cameraId }) {
       allCameraSettings[cameraId] = newSettings;
 
       const response = await fetch(
-        `http://localhost:8000/api/camera/${cameraId}/parameters`,
+        `${API_URL}/api/camera/${cameraId}/parameters`,
         {
           method: "POST",
           headers: {
@@ -273,7 +274,7 @@ export default function EditPanel({ cameraId }) {
       delete allCameraSettings[cameraId];
 
       const response = await fetch(
-        `http://localhost:8000/api/camera/${cameraId}/config`
+        `${API_URL}/api/camera/${cameraId}/config`
       );
       if (!response.ok) throw new Error("Failed to fetch config");
       const data = await response.json();
@@ -584,7 +585,7 @@ export default function EditPanel({ cameraId }) {
                         setSettings(newSettings);
                         // Send to backend
                         fetch(
-                          `http://localhost:8000/api/camera/${cameraId}/parameters`,
+                          `${API_URL}/api/camera/${cameraId}/parameters`,
                           {
                             method: "POST",
                             headers: {

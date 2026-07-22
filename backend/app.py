@@ -187,20 +187,26 @@ async def update_parameters(params: dict):
 async def update_camera_parameters(camera_id: str, request: Request):
     """Update parameters for specific camera"""
     try:
+        if camera_id not in config["samples"]:
+            raise HTTPException(
+                status_code=404, detail=f"Camera '{camera_id}' not found")
+
         body = await request.json()
-        settings = body.get("settings")
+        settings = body.get("settings", body)
 
         if not settings:
             raise HTTPException(
                 status_code=400, detail="Settings not provided")
 
-        controller.update_parameters(settings)
+        controller.update_camera_parameters(camera_id, settings)
 
         return {
             "status": "success",
             "camera_id": camera_id,
-            "config": settings
+            "config": controller.get_camera_config(camera_id)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -234,15 +240,37 @@ async def get_violation(violation_id: str):
             status_code=500, detail=f"Failed to fetch violation: {str(e)}")
 
 
+@app.post("/api/violations/{violation_id}/status")
+async def update_violation_status(violation_id: str, request: Request):
+    """Update violation status (e.g. Pending -> Resolved)"""
+    try:
+        body = await request.json()
+        status = body.get("status", "Resolved")
+        success = controller.violation_manager.update_status(violation_id, status)
+        if not success:
+            raise HTTPException(status_code=404, detail="Violation not found")
+        return {"status": "success", "violation_id": violation_id, "new_status": status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/camera/{camera_id}/config")
 async def get_camera_config(camera_id: str):
     """Get configuration for specific camera"""
     try:
-        config = controller.get_system_config()
-        if config is None:
+        if camera_id not in config["samples"]:
+            raise HTTPException(
+                status_code=404, detail=f"Camera '{camera_id}' not found")
+
+        cam_config = controller.get_camera_config(camera_id)
+        if cam_config is None:
             raise HTTPException(
                 status_code=404, detail="Configuration not found")
-        return config
+        return cam_config
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get config: {str(e)}")

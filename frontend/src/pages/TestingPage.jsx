@@ -1,9 +1,8 @@
 import React, { useState, useRef } from "react";
 import Header from "../components/Header";
+import { API_URL } from "../api";
 import {
-  FaUpload,
   FaSearch,
-  FaImage,
   FaFileImage,
   FaCar,
   FaIdCard,
@@ -105,8 +104,8 @@ export default function TestingPage() {
 
       const endpoint =
         type === "ocr"
-          ? "http://localhost:8000/api/test/ocr"
-          : "http://localhost:8000/api/test/pipeline";
+          ? `${API_URL}/api/test/ocr`
+          : `${API_URL}/api/test/pipeline`;
 
       const response = await fetch(endpoint, {
         method: "POST",

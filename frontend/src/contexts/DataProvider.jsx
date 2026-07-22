@@ -1,4 +1,5 @@
 import { createContext, useState, useContext, useEffect } from "react";
+import { API_URL } from "../api";
 
 const DataContext = createContext();
 
@@ -24,7 +25,7 @@ export function DataProvider({ children }) {
   const fetchViolations = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch("http://localhost:8000/api/violations");
+      const response = await fetch(`${API_URL}/api/violations`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch violations: ${response.statusText}`);

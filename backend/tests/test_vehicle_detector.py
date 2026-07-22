@@ -1,8 +1,15 @@
-import threading
-import time
+import sys
+import os
 import unittest
+from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from tests.mock_env import setup_mocks
+setup_mocks()
 
 from api.source.engines.detectors.vehicle_detector import VehicleDetector
+import threading
+import time
 
 
 class VehicleDetectorTest(unittest.TestCase):

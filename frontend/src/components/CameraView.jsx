@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import "./CameraView.css";
 import { useParams } from "react-router-dom";
+import { API_URL } from "../api";
 
 export default function CameraView() {
   const { cameraId } = useParams();
@@ -22,7 +23,7 @@ export default function CameraView() {
       {!hasError ? (
         <img
           className="camera-feed"
-          src={`http://localhost:8000/video_feed`}
+          src={`${API_URL}/video_feed`}
           alt="Live Camera Feed"
           onError={handleImageError}
         />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { API_URL } from "../api";
 import {
   FaArrowLeft,
   FaCheck,
@@ -20,7 +21,7 @@ export default function ViolationDetail() {
       try {
         setLoading(true);
         const response = await fetch(
-          `http://localhost:8000/api/violations/${id}`
+          `${API_URL}/api/violations/${id}`
         );
 
         if (!response.ok) {
