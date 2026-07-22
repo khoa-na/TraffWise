@@ -23,7 +23,7 @@ export default function CameraView() {
       {!hasError ? (
         <img
           className="camera-feed"
-          src={`${API_URL}/video_feed`}
+          src={`${API_URL}/video_feed?camera=${cameraId}`}
           alt="Live Camera Feed"
           onError={handleImageError}
         />
