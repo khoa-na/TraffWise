@@ -1,0 +1,8 @@
+venv
+env
+.env
+
+captures/
+
+test.ipynb
+test_2.ipynb

@@ -1,0 +1,76 @@
+.control-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  justify-content: center;
+  background: #1a1a1a;
+  border-radius: 8px 8px 0 0;
+  width: 100%;
+  max-width: 1500px;
+}
+
+.control-dropdown,
+.control-btn {
+  min-width: 130px;
+  padding: 12px;
+  font-size: 1rem;
+  font-weight: bold;
+  text-align: center;
+  border-radius: 6px;
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #444;
+  color: white;
+  cursor: pointer;
+  transition: 0.3s;
+  gap: 8px;
+}
+
+.control-btn:hover {
+  background: #666;
+}
+
+.control-btn.active {
+  background: #00cc00;
+}
+
+.control-btn:disabled {
+  background: #333;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.control-dropdown {
+  background: #333;
+  color: white;
+  border: none;
+}
+
+@media (max-width: 1100px) {
+  .control-section {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .control-section {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 450px) {
+  .control-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 300px) {
+  .control-section {
+    grid-template-columns: repeat(1, 1fr);
+  }
+}

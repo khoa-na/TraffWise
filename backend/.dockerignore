@@ -1,0 +1,7 @@
+venv
+env
+.env
+Dockerfile
+api/data
+__pycache__
+*.pyc

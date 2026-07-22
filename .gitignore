@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-hf/
+venv/
+env/
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+
+# Runtime output
+backend/captures/
+*.log
+
+# Large local assets
+backend/api/data/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store

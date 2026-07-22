@@ -1,0 +1,24 @@
+{
+  "repo_id": "khoa-na/traffwise-assets",
+  "revision": "86e562678bbc64fab61abed2d24fcfab33429fa7",
+  "files": [
+    {"path": "models/lp/LP_detection.pt", "size": 5423251, "sha256": "e120c0ed2084eb7000711e018e22767674d77fa25d5f5b73a6680e75a0e060a7"},
+    {"path": "models/one-stage/yolo11-noaugment.pt", "size": 5487699, "sha256": "13fbf169eb70379a1858f6638cd8e58068965dc3f085f33f0d207735efef905a"},
+    {"path": "models/transformer-based/rtdetrv2-nano-resnet.pt", "size": 5902304, "sha256": "142146fb159d1cc8c7d4e1e0b2c77daa72c4e1d4e841dffcc5ccfb27a27877d7"},
+    {"path": "models/two-stage/faster_rcnn.pt", "size": 65187124, "sha256": "6037f069bb32fe41c122917f9d99bf0bdfe93c308f6201f869ebf29277528c02"},
+    {"path": "samples/annotations/cam_1.yml", "size": 559, "sha256": "316126391f10af9d5e5a5b26934a2f3cc7285de1c782f0efea3131c1e5d90648"},
+    {"path": "samples/annotations/cam_2.yml", "size": 2711, "sha256": "dbf3cfae74bd5ecd1de6961ee8b249a373c83246288a236a4db96c1603c6ca41"},
+    {"path": "samples/annotations/cam_3.yml", "size": 2087, "sha256": "3bfc837d2b35ec05115fd7be61923c375f01f60d377557d986b22df6ee8c8fc1"},
+    {"path": "samples/annotations/cam_4.yml", "size": 1222, "sha256": "ed608db6599ce243b91889ec35a885ace40f3486a5d91e8aa241bdafa78c9ec3"},
+    {"path": "samples/annotations/cam_5.yml", "size": 1650, "sha256": "f36335bd90423bc886a35b9d6c0c5db5b78082268abcbaf4aa7d67ccb824562e"},
+    {"path": "samples/annotations/cam_6.yml", "size": 2711, "sha256": "dbf3cfae74bd5ecd1de6961ee8b249a373c83246288a236a4db96c1603c6ca41"},
+    {"path": "samples/annotations/cam_7.yml", "size": 1650, "sha256": "c29c3d16d823e77f8d7a4934812c85c682af3424193e0cf070d16f44a92abf8f"},
+    {"path": "samples/videos/cam_1.mp4", "size": 739348559, "sha256": "8b630d091f25b81424c129e6eb6fb8fb965cf7424ab3cf2685129a89bfa9d840"},
+    {"path": "samples/videos/cam_2.mp4", "size": 296952541, "sha256": "51066c26413362f983c0b65b89429033801287b3d8a75cfa13ae3b096a288915"},
+    {"path": "samples/videos/cam_3.mp4", "size": 107198886, "sha256": "b22bca5fac083aa151a75ca844c882ef3af16e0bcb3ba0c476ce300094a6cb7f"},
+    {"path": "samples/videos/cam_4.mp4", "size": 165932214, "sha256": "1ce503834bff8a8ecf780ab28eb724e243bb1f35e488badd625693d08487c4f5"},
+    {"path": "samples/videos/cam_5.mp4", "size": 590383198, "sha256": "7247ece73c83e1649dcd439f9e9b2ca5cf956e282e2e4d0943a8f7bb54035627"},
+    {"path": "samples/videos/cam_6.mp4", "size": 292391231, "sha256": "a013df5094c70b6d580164e555751940b9ec9cf906da298826915a876cf483db"},
+    {"path": "samples/videos/cam_7.mp4", "size": 590383198, "sha256": "7247ece73c83e1649dcd439f9e9b2ca5cf956e282e2e4d0943a8f7bb54035627"}
+  ]
+}

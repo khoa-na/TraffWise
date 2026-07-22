@@ -1,0 +1,13 @@
+.annotation-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.toggle-edit-btn {
+  margin: 10px;
+  padding: 10px;
+  background-color: orange;
+  border: none;
+  cursor: pointer;
+}
