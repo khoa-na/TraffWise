@@ -6,11 +6,15 @@ import { API_URL } from "../api";
 export default function CameraView() {
   const { cameraId } = useParams();
   const [hasError, setHasError] = useState(false);
+  const [streamKey, setStreamKey] = useState(Date.now);
 
   useEffect(() => {
     if (!hasError) return;
 
-    const retry = setTimeout(() => setHasError(false), 3000);
+    const retry = setTimeout(() => {
+      setStreamKey(Date.now());
+      setHasError(false);
+    }, 3000);
     return () => clearTimeout(retry);
   }, [hasError]);
 
@@ -23,7 +27,7 @@ export default function CameraView() {
       {!hasError ? (
         <img
           className="camera-feed"
-          src={`${API_URL}/video_feed?camera=${cameraId}`}
+          src={`${API_URL}/video_feed?camera=${cameraId}&stream=${streamKey}`}
           alt="Live Camera Feed"
           onError={handleImageError}
         />

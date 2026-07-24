@@ -129,7 +129,11 @@ async def capture_frame(request: CaptureRequest):
 async def video_feed():
     return StreamingResponse(
         content=controller.yield_from_video(),
-        media_type="multipart/x-mixed-replace; boundary=frame")
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        })
 
 
 @app.post("/toggle_pause")
