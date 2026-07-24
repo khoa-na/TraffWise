@@ -157,7 +157,7 @@ class Controller:
             frame = self.rlv_detector.detect_traffic_light_color(frame)
 
         for track in tracks:
-            if not track.is_confirmed():
+            if not track.is_confirmed() or track.time_since_update > 0:
                 continue
             track_id = track.track_id
 

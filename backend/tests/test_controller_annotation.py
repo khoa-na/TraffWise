@@ -11,8 +11,9 @@ from api.source.operators.controller import Controller
 
 
 class MockTrack:
-    def __init__(self, track_id=1):
+    def __init__(self, track_id=1, time_since_update=0):
         self.track_id = track_id
+        self.time_since_update = time_since_update
 
     def is_confirmed(self):
         return True
@@ -25,11 +26,11 @@ class MockTrack:
 
 
 class ControllerAnnotationTest(unittest.TestCase):
-    def test_process_frame_handles_violation_when_annotations_disabled(self):
+    def test_process_frame_skips_stale_tracks(self):
         controller = Controller.__new__(Controller)
         controller.class_names = ["car"]
         controller.colors = [(255, 255, 0)]
-        controller.show_annotations = False
+        controller.show_annotations = True
         controller.speed_estimation_enabled = False
         controller.wrong_lane_detection_enabled = False
         controller.red_light_detection_enabled = False
@@ -38,7 +39,9 @@ class ControllerAnnotationTest(unittest.TestCase):
         controller.vehicle_detector.detect.return_value = []
         controller.tracker = MagicMock()
         controller.tracker.extract_detections.return_value = []
-        controller.tracker.update_tracks.return_value = [MockTrack(1)]
+        controller.tracker.update_tracks.return_value = [
+            MockTrack(1, time_since_update=1)
+        ]
         controller.rlv_detector = MagicMock()
         controller.rlv_detector.detect_traffic_light_color.side_effect = lambda f: f
 
@@ -49,7 +52,7 @@ class ControllerAnnotationTest(unittest.TestCase):
         frame.copy.return_value = frame
         res_frame = controller.process_frame(frame)
 
-        controller.handle_violation.assert_called_once()
+        controller.handle_violation.assert_not_called()
         controller.draw_track.assert_not_called()
 
     def test_repeated_violation_submits_one_cloud_upload(self):
